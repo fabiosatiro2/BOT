@@ -1,0 +1,2 @@
+docker build -t grok-trading-bot .
+docker run --rm -it grok-trading-bot

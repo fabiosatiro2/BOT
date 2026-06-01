@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>PERP BOT v1.0</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#06080f;--s1:#0a0d1a;--s2:#0f1224;--b1:#1a1f38;--b2:#252a48;
+  --pink:#ff2d78;--cyan:#00e5ff;--gold:#ffc84a;--green:#00ff88;--red:#ff3355;
+  --purple:#9b59ff;--t1:#e8deff;--t2:#5a4d80;--t3:#2a2050;
+}
+html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'Space Mono',monospace;font-size:11px}
+body::before{content:'';position:fixed;inset:0;background:
+  radial-gradient(ellipse 50% 30% at 30% 0%,rgba(155,89,255,.06),transparent 60%),
+  radial-gradient(ellipse 50% 30% at 70% 100%,rgba(0,229,255,.05),transparent 60%);
+  pointer-events:none;z-index:0}
+
+.hdr{position:sticky;top:0;z-index:100;background:rgba(6,8,15,.95);backdrop-filter:blur(20px);
+  border-bottom:1px solid var(--b2);padding:10px 16px;display:flex;align-items:center;gap:10px}
+.hdot{width:8px;height:8px;border-radius:50%;background:var(--t3);flex-shrink:0}
+.htitle{font-family:'Syne',sans-serif;font-size:13px;font-weight:800;letter-spacing:2px;
+  background:linear-gradient(90deg,var(--purple),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hlev{background:var(--purple);color:#fff;font-size:9px;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:1px}
+.hpf{font-family:'Syne',sans-serif;font-size:15px;font-weight:800;color:var(--gold);margin-left:auto}
+.hpnl{font-size:11px;margin-left:8px;font-weight:700}
+.htime{font-size:9px;color:var(--t2);margin-left:8px}
+
+.wrap{position:relative;z-index:1;padding:12px 12px 40px}
+
+/* HERO */
+.hero{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:10px}
+.hk{background:var(--s1);border:1px solid var(--b2);border-radius:12px;padding:12px;position:relative;overflow:hidden}
+.hk::before{content:'';position:absolute;inset:0;opacity:.05;pointer-events:none}
+.hk.purple::before{background:var(--purple)}.hk.cyan::before{background:var(--cyan)}
+.hk.green::before{background:var(--green)}.hk.gold::before{background:var(--gold)}
+.hk-label{font-size:8px;color:var(--t2);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
+.hk-val{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;line-height:1}
+.hk-sub{font-size:8px;color:var(--t2);margin-top:3px}
+.purple .hk-val{color:var(--purple)}.cyan .hk-val{color:var(--cyan)}
+.green .hk-val{color:var(--green)}.gold .hk-val{color:var(--gold)}
+
+/* STATS */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+.st{background:var(--s1);border:1px solid var(--b1);border-radius:10px;padding:8px;text-align:center}
+.stl{font-size:7px;color:var(--t2);letter-spacing:1px;margin-bottom:3px;text-transform:uppercase}
+.stv{font-family:'Syne',sans-serif;font-size:13px;font-weight:800}
+.stv.purple{color:var(--purple)}.stv.cyan{color:var(--cyan)}.stv.gold{color:var(--gold)}.stv.green{color:var(--green)}
+
+/* CARD */
+.card{background:var(--s1);border:1px solid var(--b2);border-radius:12px;padding:12px;margin-bottom:10px}
+.card-title{font-size:8px;letter-spacing:2px;color:var(--t2);text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.card-title::before{content:'●';font-size:6px;color:var(--purple)}
+.chart-wrap{height:110px}
+
+/* POSITIONEN */
+.pos-item{background:var(--s2);border-radius:10px;padding:10px;margin-bottom:6px;display:flex;gap:10px;align-items:center}
+.pos-item.long{border-left:3px solid var(--green)}
+.pos-item.short{border-left:3px solid var(--red)}
+.pos-name{font-family:'Syne',sans-serif;font-size:12px;font-weight:800;min-width:55px}
+.side-badge{font-size:7px;padding:2px 6px;border-radius:3px;font-weight:700;letter-spacing:1px}
+.side-badge.long{background:rgba(0,255,136,.15);color:var(--green)}
+.side-badge.short{background:rgba(255,51,85,.15);color:var(--red)}
+.pos-mid{flex:1}
+.pos-pnl{font-family:'Syne',sans-serif;font-size:15px;font-weight:800}
+.lev-tag{font-size:8px;color:var(--purple);margin-left:4px}
+.pbar{height:3px;background:var(--b1);border-radius:2px;overflow:hidden;margin-top:4px}
+.pbarf{height:100%;border-radius:2px;transition:width .5s}
+
+/* TRADES */
+.tlist{display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto}
+.ti{display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--s2);border-radius:8px}
+.ts{width:28px;height:18px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:700;flex-shrink:0}
+.ts.lo{background:rgba(0,255,136,.15);color:var(--green)}
+.ts.sh{background:rgba(255,51,85,.15);color:var(--red)}
+
+/* ALERT */
+.al{padding:8px 12px;border-radius:8px;font-size:10px;font-weight:700;text-align:center;letter-spacing:1px}
+.al.ok{background:rgba(0,255,136,.1);color:var(--green);border:1px solid rgba(0,255,136,.2)}
+.al.warn{background:rgba(255,200,74,.1);color:var(--gold);border:1px solid rgba(255,200,74,.2)}
+.al.danger{background:rgba(255,51,85,.1);color:var(--red);border:1px solid rgba(255,51,85,.2)}
+
+.eur-tag{display:inline-block;background:rgba(255,200,74,.1);border:1px solid var(--gold);color:var(--gold);
+  font-size:7px;padding:1px 5px;border-radius:3px;letter-spacing:1px;margin-left:4px}
+.emp{color:var(--t2);font-size:9px;padding:8px;text-align:center}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdot" id="hdot"></div>
+  <div class="htitle">PERP BOT V1.0</div>
+  <div class="hlev" id="hlevBadge">3x</div>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+    <div class="hpf" id="hpf">€0.00</div>
+    <div class="hpnl" id="hpnl">+€0.00</div>
+    <div class="htime" id="htime">--:--:--</div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="hero">
+    <div class="hk purple">
+      <div class="hk-label">Portfolio</div>
+      <div class="hk-val" id="hkPort">€0.00</div>
+      <div class="hk-sub" id="hkPortUsd">$0.00 USDC</div>
+    </div>
+    <div class="hk cyan">
+      <div class="hk-label">Heute P&L</div>
+      <div class="hk-val" id="hkPnl">+€0.00</div>
+      <div class="hk-sub" id="hkPnlPct">0.00%</div>
+    </div>
+    <div class="hk green">
+      <div class="hk-label">Netto Profit</div>
+      <div class="hk-val" id="hkProfit">€0.00</div>
+      <div class="hk-sub" id="hkFees">Fees: €0.00</div>
+    </div>
+    <div class="hk gold">
+      <div class="hk-label">Win Rate</div>
+      <div class="hk-val" id="hkWr">--%</div>
+      <div class="hk-sub" id="hkWl">0W / 0L</div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="st">
+      <div class="stl">USDC Frei</div>
+      <div class="stv gold" id="sUsd">€0.00</div>
+      <div style="font-size:7px;color:var(--t2)" id="sUsd2">$0.00</div>
+    </div>
+    <div class="st">
+      <div class="stl">Margin</div>
+      <div class="stv purple" id="sMargin">€0.00</div>
+      <div style="font-size:7px;color:var(--t2)">In Positionen</div>
+    </div>
+    <div class="st">
+      <div class="stl">Positionen</div>
+      <div class="stv cyan" id="sPos">0/3</div>
+      <div style="font-size:7px;color:var(--t2)">Offen</div>
+    </div>
+    <div class="st">
+      <div class="stl">BTC Trend</div>
+      <div class="stv" id="sBtc" style="color:var(--gold)">--</div>
+      <div style="font-size:7px;color:var(--t2)" id="sFg">FG: --</div>
+    </div>
+  </div>
+
+  <!-- KOMBINIERTER CHART -->
+  <div class="card">
+    <div class="card-title">Portfolio Entwicklung <span class="eur-tag">EUR</span>
+      <span style="margin-left:auto;display:flex;gap:10px;align-items:center">
+        <span style="font-size:8px"><span style="color:#ffe566">●</span> Heute</span>
+        <span style="font-size:8px"><span style="color:#e8943a">●</span> Woche</span>
+        <span style="font-size:8px"><span style="color:#8b1a2e">●</span> Monat</span>
+      </span>
+    </div>
+    <div style="height:180px"><canvas id="comboChart"></canvas></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:8px">
+      <div style="text-align:center">
+        <div style="font-size:7px;color:#ffe566;letter-spacing:1px">HEUTE</div>
+        <div style="font-size:10px;font-weight:700" id="dayDiff">--</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:7px;color:#e8943a;letter-spacing:1px">WOCHE</div>
+        <div style="font-size:10px;font-weight:700" id="weekDiff">--</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:7px;color:#8b1a2e;letter-spacing:1px">MONAT</div>
+        <div style="font-size:10px;font-weight:700" id="monthDiff">--</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OFFENE POSITIONEN -->
+  <div class="card">
+    <div class="card-title">Offene Positionen</div>
+    <div id="posBody"><div class="emp">Keine offenen Positionen</div></div>
+  </div>
+
+  <!-- TRADE HISTORY -->
+  <div class="card">
+    <div class="card-title">Trade History</div>
+    <div class="tlist" id="tradeList"><div class="emp">Keine Trades</div></div>
+  </div>
+
+  <div class="al ok" id="alertBox"><span id="alertMsg">✓ Alle Systeme OK</span></div>
+
+</div>
+
+<script>
+let eurRate = 0.92;
+async function fetchEur() {
+  try {
+    const r = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=USD');
+    const d = await r.json();
+    const rt = parseFloat(d?.data?.rates?.EUR);
+    if (rt > 0) eurRate = rt;
+  } catch(e) {}
+}
+fetchEur(); setInterval(fetchEur, 60000);
+
+const toEur = v => v * eurRate;
+const fE  = v => (v >= 0 ? '+' : '') + '€' + Math.abs(toEur(v)).toFixed(2);
+const fEa = v => '€' + toEur(v).toFixed(2);
+
+// ── KOMBINIERTER CHART ──────────────────────────────────────────
+// Gelb=Heute(hell/nah), Orange=Woche, Bordeaux=Monat(dunkel/weit)
+const C_DAY   = '#ffe566';
+const C_WEEK  = '#e8943a';
+const C_MONTH = '#8b1a2e';
+
+const combCtx = document.getElementById('comboChart').getContext('2d');
+const comboChart = new Chart(combCtx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      { label:'Heute',  data:[], borderColor:C_DAY,   borderWidth:2,   pointRadius:0, fill:false, tension:0.4, yAxisID:'y'  },
+      { label:'Woche',  data:[], borderColor:C_WEEK,  borderWidth:1.5, pointRadius:0, fill:false, tension:0.4, yAxisID:'y2' },
+      { label:'Monat',  data:[], borderColor:C_MONTH, borderWidth:1.5, pointRadius:2, pointBackgroundColor:C_MONTH, fill:false, tension:0.3, yAxisID:'y3' }
+    ]
+  },
+  options: {
+    responsive:true, maintainAspectRatio:false, animation:false,
+    interaction:{ mode:'index', intersect:false },
+    plugins:{ legend:{display:false},
+      tooltip:{ callbacks:{ label: c => c.dataset.label+': €'+toEur(c.parsed.y).toFixed(2) }}
+    },
+    scales:{
+      x:{ ticks:{color:'#2a2050',font:{size:7},maxTicksLimit:6}, grid:{color:'rgba(26,31,56,.5)'} },
+      y:{ display:false }, y2:{ display:false }, y3:{ display:false }
+    }
+  }
+});
+// Live-History für Heute-Kurve
+const pH = [], pL = [];
+
+function tick() {
+  const n = new Date();
+  document.getElementById('htime').textContent =
+    String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0')+':'+String(n.getSeconds()).padStart(2,'0');
+}
+tick(); setInterval(tick,1000);
+
+function render(d) {
+  document.getElementById('hdot').style.background = 'var(--cyan)';
+  document.getElementById('hdot').style.boxShadow  = '0 0 10px var(--cyan)';
+
+  const total   = d.total || 0;
+  const free    = d.usdc_free || 0;
+  const margin  = d.margin_used || 0;
+  const pnl     = d.today_pnl || 0;
+  const wins    = d.wins || 0;
+  const losses  = d.losses || 0;
+  const lev     = d.leverage || 3;
+  const profit  = d.total_profit || 0;
+  const fees    = d.total_fees || 0;
+  const wr      = (wins+losses) > 0 ? (wins/(wins+losses)*100).toFixed(0) : '--';
+
+  document.getElementById('hlevBadge').textContent = lev + 'x';
+  document.getElementById('hpf').textContent = '€' + toEur(total).toFixed(2);
+  const hpnl = document.getElementById('hpnl');
+  hpnl.textContent = fE(pnl);
+  hpnl.style.color = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+
+  document.getElementById('hkPort').textContent = '€' + toEur(total).toFixed(2);
+  document.getElementById('hkPortUsd').textContent = '$' + total.toFixed(2) + ' USDC';
+
+  const hkp = document.getElementById('hkPnl');
+  hkp.textContent = fE(pnl);
+  hkp.style.color = pnl >= 0 ? 'var(--cyan)' : 'var(--red)';
+  document.getElementById('hkPnlPct').textContent = total > 0 ? (pnl/total*100).toFixed(2)+'%' : '0%';
+
+  const hkpr = document.getElementById('hkProfit');
+  hkpr.textContent = '€' + toEur(profit).toFixed(2);
+  hkpr.style.color = profit >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('hkFees').textContent = 'Fees: €' + toEur(fees).toFixed(4);
+
+  document.getElementById('hkWr').textContent = wr + '%';
+  document.getElementById('hkWr').style.color = wins >= losses ? 'var(--green)' : 'var(--red)';
+  document.getElementById('hkWl').textContent = wins + 'W / ' + losses + 'L';
+
+  document.getElementById('sUsd').textContent  = '€' + toEur(free).toFixed(2);
+  document.getElementById('sUsd2').textContent = '$' + free.toFixed(2);
+  document.getElementById('sMargin').textContent = '€' + toEur(margin).toFixed(2);
+  document.getElementById('sPos').textContent = (d.positions||[]).length + '/3';
+
+  const btc = d.btc_trend || 0;
+  const btcEl = document.getElementById('sBtc');
+  btcEl.textContent = btc > 0 ? '↑ UP' : btc < 0 ? '↓ DN' : '→ SIDE';
+  btcEl.style.color = btc > 0 ? 'var(--green)' : btc < 0 ? 'var(--red)' : 'var(--gold)';
+  document.getElementById('sFg').textContent = 'FG: ' + (d.fear_greed || '--');
+
+  // ── CHART UPDATE ──────────────────────────────────────────────
+  const n = new Date();
+  const tl = String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0')+':'+String(n.getSeconds()).padStart(2,'0');
+
+  // Heute-Kurve (Live RAM)
+  pH.push(total); pL.push(tl);
+  if (pH.length > 120) { pH.shift(); pL.shift(); }
+  comboChart.data.labels          = pL;
+  comboChart.data.datasets[0].data = pH;
+
+  // Wochenkurve aus API
+  const wc = d.week_chart || [], wl = d.week_chart_labels || [];
+  if (wc.length > 1) {
+    comboChart.data.datasets[1].data = wc;
+    const wDiff = toEur(wc[wc.length-1] - wc[0]);
+    const wdEl = document.getElementById('weekDiff');
+    wdEl.textContent = (wDiff>=0?'+':'')+'€'+wDiff.toFixed(2);
+    wdEl.style.color = wDiff>=0?'var(--green)':'var(--red)';
+  }
+
+  // Monatskurve aus API
+  const mc = d.month_chart || [];
+  if (mc.length > 1) {
+    comboChart.data.datasets[2].data = mc;
+    const mDiff = toEur(mc[mc.length-1] - mc[0]);
+    const mdEl = document.getElementById('monthDiff');
+    mdEl.textContent = (mDiff>=0?'+':'')+'€'+mDiff.toFixed(2);
+    mdEl.style.color = mDiff>=0?'var(--green)':'var(--red)';
+  }
+
+  // Heute-Diff
+  if (pH.length > 1) {
+    const dDiff = toEur(pH[pH.length-1] - pH[0]);
+    const ddEl = document.getElementById('dayDiff');
+    ddEl.textContent = (dDiff>=0?'+':'')+'€'+dDiff.toFixed(2);
+    ddEl.style.color = dDiff>=0?'var(--green)':'var(--red)';
+  }
+
+  comboChart.update('none');
+
+  // Positionen
+  const pos = d.positions || [];
+  const pb = document.getElementById('posBody');
+  if (!pos.length) {
+    pb.innerHTML = '<div class="emp">Keine offenen Positionen</div>';
+  } else {
+    pb.innerHTML = pos.map(p => {
+      const isLong = p.side === 'LONG';
+      const col = p.pnl >= 0 ? 'var(--green)' : 'var(--red)';
+      const bw = Math.min(Math.abs(p.pnl) / (lev * 6) * 100, 100).toFixed(0);
+      const pair = (p.pair||'').replace('-PERP-INTX','');
+      return `<div class="pos-item ${isLong?'long':'short'}">
+        <div>
+          <div class="pos-name">${pair}</div>
+          <div class="side-badge ${isLong?'long':'short'}">${p.side}</div>
+        </div>
+        <div class="pos-mid">
+          <div style="display:flex;align-items:baseline">
+            <span class="pos-pnl" style="color:${col}">${(p.pnl>=0?'+':'')}${p.pnl.toFixed(1)}%</span>
+            <span class="lev-tag">${lev}x</span>
+          </div>
+          <div class="pbar"><div class="pbarf" style="width:${bw}%;background:${col}"></div></div>
+          <div style="display:flex;justify-content:space-between;margin-top:3px">
+            <span style="font-size:8px;color:var(--t2)">Entry: €${toEur(p.entry).toFixed(4)}</span>
+            <span style="font-size:8px;color:var(--t2)">Margin: €${toEur(p.margin||0).toFixed(2)}</span>
+          </div>
+        </div>
+        <div style="text-align:right;font-size:8px">
+          <div style="color:var(--red)">Stop: ${isLong ? '↓' : '↑'}${isLong?(((p.entry-p.stop)/p.entry*100).toFixed(1)):(((p.stop-p.entry)/p.entry*100).toFixed(1))}%</div>
+          <div style="color:var(--green)">TP: ${isLong ? '↑' : '↓'}${isLong?(((p.tp-p.entry)/p.entry*100).toFixed(1)):(((p.entry-p.tp)/p.entry*100).toFixed(1))}%</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Trades
+  const trades = d.trades || [];
+  const tlEl = document.getElementById('tradeList');
+  const closedTrades = trades.filter(t => t.action === 'CLOSE');
+  if (!closedTrades.length) {
+    tlEl.innerHTML = '<div class="emp">Noch keine geschlossenen Trades</div>';
+  } else {
+    tlEl.innerHTML = closedTrades.slice(0,30).map(t => {
+      const isLong = t.side === 'LONG';
+      const net = t.profit_usdc != null ? t.profit_usdc : 0;
+      const pnl = t.pnl_pct != null ? t.pnl_pct : 0;
+      const col = net >= 0 ? 'var(--green)' : 'var(--red)';
+      const pair = (t.pair||'').replace('-PERP-INTX','').replace('-USDC','');
+      return `<div class="ti">
+        <div class="ts ${isLong?'lo':'sh'}">${isLong?'L':'S'}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:10px">${pair}</div>
+          <div style="font-size:8px;color:var(--t2)">${t.time||'--'} · ${t.reason||''}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;color:${col}">${net>=0?'+':''}€${toEur(net).toFixed(2)}</div>
+          <div style="font-size:8px;color:var(--t2)">${pnl>=0?'+':''}${pnl.toFixed(1)}% · ${isLong?'LONG':'SHORT'}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Alert
+  const ab = document.getElementById('alertBox');
+  const am = document.getElementById('alertMsg');
+  if (d.circuit_breaker) { ab.className='al danger'; am.textContent='⚡ Circuit Breaker — 2h Pause'; }
+  else if (d.daily_loss_hit) { ab.className='al warn'; am.textContent='⚠ Tages-Verlust-Limit erreicht'; }
+  else if ((d.consec_losses||0) >= 2) { ab.className='al warn'; am.textContent='⚠ ' + d.consec_losses + ' Verluste in Folge'; }
+  else { ab.className='al ok'; am.textContent='✓ Alle Systeme OK — Perp Bot aktiv'; }
+}
+
+function fetchData() {
+  fetch('/api/status').then(r=>r.json()).then(d=>render(d)).catch(()=>{
+    document.getElementById('hdot').style.background='var(--red)';
+  });
+}
+fetchData(); setInterval(fetchData, 5000);
+</script>
+</body>
+</html>

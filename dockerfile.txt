@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Abhängigkeiten installieren
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Bot-Datei kopieren
+COPY btc_bot.py .
+
+# Wichtig für Railway
+ENV PYTHONUNBUFFERED=1
+
+# Starte den Bot
+CMD ["python", "-u", "btc_bot.py"]
