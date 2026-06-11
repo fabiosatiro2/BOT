@@ -1758,6 +1758,48 @@ def perp_cycle(client, bid_prices, candle_cache, fg, btc_trend, total_usdc):
         perp_open_short(client, pair, price, margin, score)
         opened += 1
 
+
+def intx_get_open_positions():
+    """Alle offenen INTX Positionen laden — auch manuelle"""
+    pid = get_intx_portfolio()
+    if not pid: return []
+    data = intx_request("GET", f"/api/v1/portfolios/{pid}/positions")
+    if not data: return []
+    positions = []
+    for pos in data.get("positions", []):
+        try:
+            net_size = float(pos.get("net_size", 0))
+            if abs(net_size) < 1e-8: continue
+            entry = float(pos.get("avg_entry_price", 0))
+            mark  = float(pos.get("mark_price", entry))
+            side  = "LONG" if net_size > 0 else "SHORT"
+            pnl   = float(pos.get("unrealized_pnl", 0))
+            pair  = pos.get("product_id", "").replace("-PERP", "-USDC")
+            positions.append({
+                "pair":   pair,
+                "side":   side,
+                "entry":  entry,
+                "now":    mark,
+                "size":   abs(net_size),
+                "pnl_usdc": pnl,
+                "pnl_pct": ((mark-entry)/entry*100) if entry>0 else 0,
+                "margin": float(pos.get("initial_margin", 0)),
+                "manual": 1,
+                "source": "INTX",
+            })
+        except: continue
+    return positions
+
+def intx_get_balance_full():
+    """INTX Gesamtguthaben"""
+    pid = get_intx_portfolio()
+    if not pid: return 0.0, 0.0
+    data = intx_request("GET", f"/api/v1/portfolios/{pid}/summary")
+    if not data: return 0.0, 0.0
+    usdc = float(data.get("collateral", {}).get("collateral_value", 0))
+    unrealized = float(data.get("unrealized_pnl", 0))
+    return usdc, unrealized
+
 def run():
     global current_target_index, start_total, last_known_total, wins, losses, positions, scored_signals
     global perp_positions, perp_wins, perp_losses, perp_trade_log
@@ -2137,6 +2179,20 @@ def run():
                                  "pnl":round(pp,2),"drop":round(pd,2),
                                  "manual":pos.get("manual",0)})
 
+            # ── INTX MANUELLE POSITIONEN LADEN ──────────────────
+            intx_manual_pos = []
+            intx_usdc = 0.0
+            intx_unrealized = 0.0
+            if INTX_API_KEY and INTX_PRIVATE_KEY and cycle % 6 == 0:
+                try:
+                    intx_manual_pos = intx_get_open_positions()
+                    intx_usdc, intx_unrealized = intx_get_balance_full()
+                    if intx_manual_pos:
+                        log(f"INTX: {len(intx_manual_pos)} Positionen | "
+                            f"Balance: ${intx_usdc:.2f} | PnL: ${intx_unrealized:+.2f}")
+                except Exception as e:
+                    log(f"INTX LOAD ERR: {e}")
+
             # ── PERP CYCLE ──────────────────────────────────────
             if PERP_ENABLED and cycle % 3 == 0:
                 # Aktuelle Preise für Perp-Pairs sammeln
@@ -2188,6 +2244,9 @@ def run():
                 "perp_trades":list(reversed(perp_trade_log[-20:])),
                 "perp_enabled":PERP_ENABLED,
                 "perp_leverage":PERP_LEVERAGE,
+                "intx_positions": intx_manual_pos if 'intx_manual_pos' in dir() else [],
+                "intx_balance": round(intx_usdc, 2) if 'intx_usdc' in dir() else 0.0,
+                "intx_unrealized": round(intx_unrealized, 4) if 'intx_unrealized' in dir() else 0.0,
             })
             dashboard_state["history"].append(round(total,4))
             if len(dashboard_state["history"]) > 120:
