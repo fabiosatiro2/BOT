@@ -25,8 +25,8 @@ except:
     DB_NAME = "trader.db"
 TARGETS          = [5, 25, 100, 250, 500, 1000, 2500, 5000]
 CHECK_INTERVAL   = 10
-MAX_POSITIONS    = 5      # v6.8: €700 Portfolio
-MIN_ORDER_USDC   = 30.0   # v6.8: €700 Portfolio
+MAX_POSITIONS    = 2      # v6.9: kleines Portfolio
+MIN_ORDER_USDC   = 4.0    # v6.9: kleines Portfolio
 TAKER_FEE_PCT    = 0.006
 MAKER_FEE_PCT    = 0.0        # Maker Orders = 0% Fee
 TOTAL_FEE_PCT    = TAKER_FEE_PCT * 2   # Realistisch: Taker Fees fuer Break-Even Berechnung
@@ -35,12 +35,12 @@ TOTAL_FEE_PCT    = TAKER_FEE_PCT * 2   # Realistisch: Taker Fees fuer Break-Even
 LONG_STOP_PCT    = 0.015   # v6.6: etwas weiter fuer weniger false stops
 LONG_TP_PCT      = 0.070   # v6.6: höherer TP für mehr Netto-Gewinn
 LONG_TRAIL_PCT   = 0.012   # v6.7: Kompromiss Sicherung/Luft
-MIN_SCORE        = 12.0   # v6.8: Grok-Empfehlung, nur sehr starke Signale
+MIN_SCORE        = 9.0    # v6.9: niedrigerer Score für kleines Portfolio
 
 # Position Sizing
 BASE_RISK_PCT    = 0.26   # 77% WR v6.2
-MAX_RISK_PCT     = 0.25   # v6.8: max 25% pro Position
-MIN_RISK_PCT     = 0.08   # v6.8: min 8% = ~$60 pro Trade
+MAX_RISK_PCT     = 0.80   # v6.9: kleines Portfolio
+MIN_RISK_PCT     = 0.60   # v6.9: kleines Portfolio
 
 # ── PERP SETTINGS ─────────────────────────────────────────────
 PERP_ENABLED     = os.getenv("PERP_ENABLED", "true").lower() == "true"
