@@ -308,6 +308,18 @@ html,body{height:100%;background:var(--bg);color:var(--t1);font-family:'Space Mo
     <div id="posBody"><div class="emp">Keine offenen Positionen</div></div>
   </div>
 
+  <!-- INTX MANUELLE POSITIONEN -->
+  <div class="pos-card" id="intxCard" style="display:none">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <div style="font-size:8px;letter-spacing:2px;color:var(--t2)">INTX PERPETUALS</div>
+      <div style="margin-left:auto;font-size:8px">
+        Balance: <span id="intxBal" style="color:var(--gold)">$0.00</span>
+        &nbsp;|&nbsp; PnL: <span id="intxPnl" style="color:var(--t2)">$0.00</span>
+      </div>
+    </div>
+    <div id="intxBody"><div class="emp">Keine INTX Positionen</div></div>
+  </div>
+
   <!-- ALLE TRADES -->
   <div class="slabel">Alle Trades — <span style="color:var(--green)">Verkäufe grün</span> · <span style="color:var(--red)">Käufe rot</span></div>
   <div class="trades-card">
@@ -398,11 +410,13 @@ function render(d) {
   // Profit / Verlust aus Trades berechnen
   const sellTrades  = trades.filter(t => t.action === 'SELL');
   const buyTrades   = trades.filter(t => t.action === 'BUY');
+  // Nur SELL Trades für Profit/Verlust
   const totalProfit = sellTrades.filter(t => (t.profit_usdc||0) > 0)
                         .reduce((s,t) => s + (t.profit_usdc||0), 0);
   const totalLoss   = Math.abs(sellTrades.filter(t => (t.profit_usdc||0) < 0)
                         .reduce((s,t) => s + (t.profit_usdc||0), 0));
-  const totalFees   = trades.reduce((s,t) => s + Math.abs(t.fee_usdc||0), 0);
+  // Fees nur von echten Fee-Werten
+  const totalFees   = sellTrades.reduce((s,t) => s + Math.abs(t.fee_usdc||0), 0);
   const netto       = totalProfit - totalLoss - totalFees;
 
   // Header
@@ -550,6 +564,47 @@ function render(d) {
         '</div>'+
       '</div>';
     }).join('');
+  }
+
+  // ── INTX POSITIONEN ──────────────────────────────────────────
+  const intxPos = d.intx_positions || [];
+  const intxCard = document.getElementById('intxCard');
+  if (intxPos.length > 0 || (d.intx_balance && d.intx_balance > 0)) {
+    intxCard.style.display = 'block';
+    document.getElementById('intxBal').textContent = '$' + (d.intx_balance||0).toFixed(2);
+    const intxPnlEl = document.getElementById('intxPnl');
+    const ip = d.intx_unrealized || 0;
+    intxPnlEl.textContent = (ip>=0?'+':'') + '$' + ip.toFixed(2);
+    intxPnlEl.style.color = ip>=0?'var(--green)':'var(--red)';
+    const ib = document.getElementById('intxBody');
+    if (!intxPos.length) {
+      ib.innerHTML = '<div class="emp">Keine offenen INTX Positionen</div>';
+    } else {
+      ib.innerHTML = intxPos.map(p => {
+        const isLong = p.side === 'LONG';
+        const col = (p.pnl_pct||0) >= 0 ? 'var(--green)' : 'var(--red)';
+        const pair = (p.pair||'').replace('-USDC','').replace('-PERP','');
+        return '<div class="pos-item manual" style="border-left:3px solid var(--purple)">'+
+          '<div>'+
+            '<div class="pos-coin">'+pair+'</div>'+
+            '<div class="pos-badge man">'+(isLong?'LONG':'SHORT')+'</div>'+
+          '</div>'+
+          '<div class="pos-mid">'+
+            '<div class="pos-pnl" style="color:'+col+'">'+(p.pnl_pct>=0?'+':'')+p.pnl_pct.toFixed(2)+'%</div>'+
+            '<div class="pos-detail">'+
+              '<span>Entry: $'+((p.entry||0).toFixed(4))+'</span>'+
+              '<span>Jetzt: $'+((p.now||0).toFixed(4))+'</span>'+
+            '</div>'+
+          '</div>'+
+          '<div class="pos-right">'+
+            '<div style="color:'+(p.pnl_usdc>=0?'var(--green)':'var(--red)')+'">'+
+              (p.pnl_usdc>=0?'+':'')+'$'+(p.pnl_usdc||0).toFixed(2)+
+            '</div>'+
+            '<div style="font-size:7px;color:var(--purple)">INTX MANUELL</div>'+
+          '</div>'+
+        '</div>';
+      }).join('');
+    }
   }
 
   // Alle Trades
