@@ -44,6 +44,9 @@ MIN_RISK_PCT     = 0.08   # v6.8: min 8% = ~$60 pro Trade
 
 # ── PERP SETTINGS ─────────────────────────────────────────────
 PERP_ENABLED     = os.getenv("PERP_ENABLED", "true").lower() == "true"
+INTX_API_KEY     = os.getenv("INTX_API_KEY", "")
+INTX_PRIVATE_KEY = os.getenv("INTX_PRIVATE_KEY", "")
+INTX_BASE        = "https://api.international.coinbase.com"
 PERP_LEVERAGE    = int(os.getenv("PERP_LEVERAGE", "3"))
 PERP_MAX_POS     = 3
 PERP_MIN_MARGIN  = 30.0
@@ -593,6 +596,157 @@ def get_fear_greed():
     except: pass
     return 50
 
+
+# ── COINGLASS FUNDING RATE ──────────────────────────────────────
+_funding_cache = {}
+FUNDING_TTL = 300  # 5 Minuten Cache
+
+def get_funding_rate(coin):
+    """
+    Coinglass Funding Rate API (public, keine Auth nötig)
+    Positiv = Longs zahlen (teuer für Longs, gut für Shorts)
+    Negativ = Shorts zahlen (gut für Longs)
+    """
+    now = time.time()
+    cached = _funding_cache.get(coin)
+    if cached and now - cached[0] < FUNDING_TTL:
+        return cached[1]
+    try:
+        # Coinbase Perpetuals Funding (public API)
+        symbol = coin.replace("-USDC", "").replace("-USD", "")
+        url = f"https://api.coinglass.com/public/v2/funding?symbol={symbol}&exchangeName=Coinbase"
+        r = requests.get(url, timeout=6,
+                        headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code == 200:
+            data = r.json()
+            rate = float(data.get("data", [{}])[0].get("fundingRate", 0))
+            _funding_cache[coin] = (now, rate)
+            return rate
+    except: pass
+    # Fallback: Binance Funding Rate (sehr ähnlich)
+    try:
+        symbol = coin.replace("-USDC", "USDT").replace("-USD", "USDT")
+        url = f"https://fapi.binance.com/fapi/v1/premiumIndex?symbol={symbol}"
+        r = requests.get(url, timeout=6)
+        if r.status_code == 200:
+            rate = float(r.json().get("lastFundingRate", 0))
+            _funding_cache[coin] = (now, rate)
+            return rate
+    except: pass
+    _funding_cache[coin] = (now, 0.0)
+    return 0.0
+
+def funding_score(pair):
+    """
+    Score Beitrag aus Funding Rate:
+    Stark negativ (Shorts zahlen) → Long sehr attraktiv → +3
+    Leicht negativ                → Long attraktiv      → +1.5
+    Neutral                       → kein Einfluss       → 0
+    Stark positiv (Longs zahlen)  → Long teuer          → -2
+    """
+    coin = pair.replace("-USDC", "")
+    rate = get_funding_rate(coin)
+    if rate < -0.001:   return 3.0, f"FR:{rate*100:.3f}%"
+    elif rate < -0.0005: return 1.5, f"FR:{rate*100:.3f}%"
+    elif rate > 0.002:  return -2.0, f"FR:{rate*100:.3f}%"
+    elif rate > 0.001:  return -1.0, f"FR:{rate*100:.3f}%"
+    return 0.0, ""
+
+# ── CRYPTOPANIC NEWS SENTIMENT ──────────────────────────────────
+_news_cache = {}
+NEWS_TTL = 180  # 3 Minuten Cache
+CRYPTOPANIC_KEY = os.getenv("CRYPTOPANIC_KEY", "")  # Optional
+
+def get_news_sentiment(coin):
+    """
+    CryptoPanic News Sentiment für einen Coin.
+    Gibt zurück: score (-3 bis +3), signal_str
+    Positiv = bullishe News = Kaufsignal
+    Negativ = bearishe News = kein Kauf
+    """
+    now = time.time()
+    cached = _news_cache.get(coin)
+    if cached and now - cached[0] < NEWS_TTL:
+        return cached[1], cached[2]
+
+    try:
+        # CryptoPanic public API (kein Key nötig für basic)
+        url = f"https://cryptopanic.com/api/v1/posts/?auth_token={CRYPTOPANIC_KEY}&currencies={coin}&filter=hot&public=true"
+        if not CRYPTOPANIC_KEY:
+            # Ohne Key: nur public posts
+            url = f"https://cryptopanic.com/api/v1/posts/?currencies={coin}&filter=hot&public=true"
+        r = requests.get(url, timeout=6)
+        if r.status_code != 200:
+            _news_cache[coin] = (now, 0.0, "")
+            return 0.0, ""
+
+        results = r.json().get("results", [])
+        if not results:
+            _news_cache[coin] = (now, 0.0, "")
+            return 0.0, ""
+
+        # Letzte 30 Minuten analysieren
+        cutoff = now - 1800
+        recent = []
+        for post in results[:20]:
+            try:
+                from datetime import timezone
+                pub = post.get("published_at", "")
+                # Parse ISO timestamp
+                import re as _re
+                nums = _re.findall(r'\d+', pub)
+                if len(nums) >= 6:
+                    from datetime import datetime as _dt
+                    dt = _dt(int(nums[0]),int(nums[1]),int(nums[2]),
+                            int(nums[3]),int(nums[4]),int(nums[5]),
+                            tzinfo=timezone.utc)
+                    if dt.timestamp() > cutoff:
+                        recent.append(post)
+            except: continue
+
+        if not recent:
+            _news_cache[coin] = (now, 0.0, "")
+            return 0.0, ""
+
+        # Votes analysieren
+        bullish = sum(p.get("votes", {}).get("positive", 0) for p in recent)
+        bearish = sum(p.get("votes", {}).get("negative", 0) for p in recent)
+        total   = bullish + bearish
+
+        if total == 0:
+            # Nur Anzahl News zählt
+            news_count = len(recent)
+            if news_count >= 5:
+                score = 2.0
+                sig = f"NEWS:{news_count}hot"
+            elif news_count >= 3:
+                score = 1.0
+                sig = f"NEWS:{news_count}"
+            else:
+                score = 0.0
+                sig = ""
+        else:
+            ratio = bullish / total
+            if ratio > 0.75:
+                score = 3.0
+                sig = f"NEWS+:{int(ratio*100)}%"
+            elif ratio > 0.60:
+                score = 1.5
+                sig = f"NEWS:{int(ratio*100)}%"
+            elif ratio < 0.30:
+                score = -2.0
+                sig = f"NEWS-:{int((1-ratio)*100)}%"
+            else:
+                score = 0.0
+                sig = ""
+
+        _news_cache[coin] = (now, score, sig)
+        return score, sig
+
+    except Exception as e:
+        _news_cache[coin] = (now, 0.0, "")
+        return 0.0, ""
+
 # ?? MASTER SIGNAL SCORE ???????????????????????????????????????????????????????
 def compute_score(client, pair, data, btc_trend=0):
     """
@@ -739,8 +893,23 @@ def compute_score(client, pair, data, btc_trend=0):
                 score += 1.5; signals.append(f"BIG-BID:{wh['bid_whale']:.0f}x")
     except: pass
 
+    # ── FUNDING RATE ──────────────────────────────────────────────
+    try:
+        fr_score, fr_sig = funding_score(pair)
+        score += fr_score
+        if fr_sig: signals.append(fr_sig)
+    except: pass
+
+    # ── NEWS SENTIMENT ────────────────────────────────────────────
+    try:
+        coin = pair.replace("-USDC","")
+        ns_score, ns_sig = get_news_sentiment(coin)
+        score += ns_score
+        if ns_sig: signals.append(ns_sig)
+    except: pass
+
     if signals:
-        log(f"  {pair} Score={score:.1f} [{', '.join(signals[:5])}]")
+        log(f"  {pair} Score={score:.1f} [{', '.join(signals[:6])}]")
 
     return score
 
@@ -1242,6 +1411,119 @@ def ema_value(closes, p):
     for c in closes[1:]: v = c*k + v*(1-k)
     return v
 
+
+# ══════════════════════════════════════════════════════════════════
+# INTX ECHTE ORDER FUNKTIONEN
+# ══════════════════════════════════════════════════════════════════
+import hmac, hashlib, base64
+
+def intx_sign(method, path, body=""):
+    """INTX API Signatur"""
+    ts = str(int(time.time()))
+    msg = ts + method.upper() + path + (body or "")
+    try:
+        key = parse_ec_key(INTX_PRIVATE_KEY)
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import hashes
+        pk = load_pem_private_key(key.encode(), password=None, backend=default_backend())
+        sig = pk.sign(msg.encode(), ec.ECDSA(hashes.SHA256()))
+        return ts, base64.b64encode(sig).decode()
+    except Exception as e:
+        log(f"INTX SIGN ERR: {e}")
+        return ts, ""
+
+def intx_request(method, path, body=None):
+    """INTX API Request"""
+    if not INTX_API_KEY or not INTX_PRIVATE_KEY:
+        return None
+    body_str = json.dumps(body) if body else ""
+    ts, sig = intx_sign(method, path, body_str)
+    headers = {
+        "CB-ACCESS-KEY": INTX_API_KEY,
+        "CB-ACCESS-SIGN": sig,
+        "CB-ACCESS-TIMESTAMP": ts,
+        "Content-Type": "application/json"
+    }
+    try:
+        url = INTX_BASE + path
+        r = requests.request(method, url, headers=headers,
+                           data=body_str if body_str else None, timeout=10)
+        if r.status_code in [200, 201]:
+            return r.json()
+        log(f"INTX ERR {r.status_code}: {r.text[:100]}")
+        return None
+    except Exception as e:
+        log(f"INTX REQ ERR: {e}")
+        return None
+
+def intx_get_portfolio():
+    """INTX Portfolio ID holen"""
+    data = intx_request("GET", "/api/v1/portfolios")
+    if data and "results" in data:
+        for p in data["results"]:
+            if p.get("default"): return p["portfolio_uuid"]
+        return data["results"][0]["portfolio_uuid"]
+    return None
+
+_intx_portfolio_id = None
+
+def get_intx_portfolio():
+    global _intx_portfolio_id
+    if not _intx_portfolio_id:
+        _intx_portfolio_id = intx_get_portfolio()
+    return _intx_portfolio_id
+
+def intx_get_balance():
+    """USDC Balance auf INTX"""
+    pid = get_intx_portfolio()
+    if not pid: return 0.0
+    data = intx_request("GET", f"/api/v1/portfolios/{pid}/balances")
+    if not data: return 0.0
+    for b in data.get("balances", []):
+        if b.get("asset_id") == "USDC":
+            return float(b.get("quantity", 0))
+    return 0.0
+
+def intx_place_order(side, pair, size, leverage=3):
+    """Echte INTX Perp Order platzieren"""
+    pid = get_intx_portfolio()
+    if not pid:
+        log("INTX: Kein Portfolio gefunden")
+        return False
+    # INTX Pair Format: BTC-PERP
+    intx_pair = pair.replace("-USDC", "-PERP")
+    body = {
+        "portfolio": pid,
+        "side": side,          # "BUY" oder "SELL"
+        "client_order_id": str(uuid.uuid4()),
+        "type": "MARKET",
+        "product_id": intx_pair,
+        "size": str(round(size, 6)),
+    }
+    data = intx_request("POST", "/api/v1/orders", body)
+    if data:
+        log(f"INTX ORDER OK: {side} {intx_pair} size={size}")
+        return True
+    log(f"INTX ORDER FAILED: {side} {intx_pair}")
+    return False
+
+def intx_close_position(pair):
+    """INTX Position schließen"""
+    pid = get_intx_portfolio()
+    if not pid: return False
+    intx_pair = pair.replace("-USDC", "-PERP")
+    # Aktuelle Position holen
+    data = intx_request("GET", f"/api/v1/portfolios/{pid}/positions")
+    if not data: return False
+    for pos in data.get("positions", []):
+        if pos.get("product_id") == intx_pair:
+            side = pos.get("side", "LONG")
+            size = abs(float(pos.get("net_size", 0)))
+            if size > 0:
+                close_side = "SELL" if side == "LONG" else "BUY"
+                return intx_place_order(close_side, pair, size)
+    return False
+
 def perp_score_long(data, fg=50, btc_trend=0):
     closes = data.get("close", [])
     if len(closes) < 20: return 0
@@ -1346,12 +1628,20 @@ def perp_open_long(client, pair, price, margin, score):
     size = round((margin * PERP_LEVERAGE) / price, 6)
     stop = price * (1 - PERP_STOP_PCT)
     tp   = price * (1 + PERP_TP_PCT)
+    # Echte INTX Order wenn Keys vorhanden
+    if INTX_API_KEY and INTX_PRIVATE_KEY:
+        ok = intx_place_order("BUY", pair, size)
+        if not ok:
+            log(f"PERP LONG FAILED: {pair}")
+            return False
+        log(f"PERP LONG REAL {pair} @ {price:.4f} | Margin:${margin:.0f} | {PERP_LEVERAGE}x | Score:{score:.1f}")
+    else:
+        log(f"PERP LONG SIM  {pair} @ {price:.4f} | Margin:${margin:.0f} | {PERP_LEVERAGE}x | Score:{score:.1f} [SIMULATION]")
     pos  = {"side":"LONG","entry":price,"peak":price,"trough":price,
             "size":size,"margin":margin,"stop":stop,"tp":tp,
             "opened_at":datetime.now().strftime("%Y-%m-%d %H:%M")}
     perp_positions[pair] = pos
     perp_save(pair, pos)
-    log(f"PERP LONG  {pair} @ {price:.4f} | Margin:${margin:.0f} | {PERP_LEVERAGE}x | Score:{score:.1f}")
     return True
 
 def perp_open_short(client, pair, price, margin, score):
@@ -1359,12 +1649,20 @@ def perp_open_short(client, pair, price, margin, score):
     size = round((margin * PERP_LEVERAGE) / price, 6)
     stop = price * (1 + PERP_STOP_PCT)
     tp   = price * (1 - PERP_TP_PCT)
+    # Echte INTX Order wenn Keys vorhanden
+    if INTX_API_KEY and INTX_PRIVATE_KEY:
+        ok = intx_place_order("SELL", pair, size)
+        if not ok:
+            log(f"PERP SHORT FAILED: {pair}")
+            return False
+        log(f"PERP SHORT REAL {pair} @ {price:.4f} | Margin:${margin:.0f} | {PERP_LEVERAGE}x | Score:{score:.1f}")
+    else:
+        log(f"PERP SHORT SIM  {pair} @ {price:.4f} | Margin:${margin:.0f} | {PERP_LEVERAGE}x | Score:{score:.1f} [SIMULATION]")
     pos  = {"side":"SHORT","entry":price,"peak":price,"trough":price,
             "size":size,"margin":margin,"stop":stop,"tp":tp,
             "opened_at":datetime.now().strftime("%Y-%m-%d %H:%M")}
     perp_positions[pair] = pos
     perp_save(pair, pos)
-    log(f"PERP SHORT {pair} @ {price:.4f} | Margin:${margin:.0f} | {PERP_LEVERAGE}x | Score:{score:.1f}")
     return True
 
 def perp_close(pair, price, reason):
@@ -1377,6 +1675,9 @@ def perp_close(pair, price, reason):
     profit  = margin * lev_pnl
     fee     = margin * PERP_LEVERAGE * TOTAL_FEE_PCT
     net     = profit - fee
+    # Echte INTX Position schließen
+    if INTX_API_KEY and INTX_PRIVATE_KEY:
+        intx_close_position(pair)
     perp_positions.pop(pair, None)
     perp_delete(pair)
     icon = "WIN" if net > 0 else "LOSS"
